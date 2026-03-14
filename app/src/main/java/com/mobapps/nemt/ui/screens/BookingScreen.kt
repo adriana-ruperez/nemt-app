@@ -2,6 +2,7 @@ package com.mobapps.nemt.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +24,10 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookingScreen(onBack: () -> Unit) {
+fun BookingScreen(
+    onBack: () -> Unit,
+    contentPadding: PaddingValues
+) {
     var pickup by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
 
@@ -37,6 +41,7 @@ fun BookingScreen(onBack: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(contentPadding)
                 .padding(innerPadding)
                 .padding(16.dp),
             verticalArrangement = Arrangement.Top
