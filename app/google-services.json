@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "501482110925",
+    "project_id": "nemt-mobapps-423cf",
+    "storage_bucket": "nemt-mobapps-423cf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:501482110925:android:bde3a5ead82508b4d54e84",
+        "android_client_info": {
+          "package_name": "com.mobapps.nemt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAnaONFNDnY0TMUHXSx96sDgWe3jkAOCaQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
