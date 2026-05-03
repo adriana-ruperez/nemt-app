@@ -3,8 +3,11 @@ package com.mobapps.nemt.navigation
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -12,6 +15,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
+import com.mobapps.nemt.data.UserProfile
+import com.mobapps.nemt.data.UserProfileRepository
 import com.mobapps.nemt.ui.components.BottomNavigationBar
 import com.mobapps.nemt.ui.screens.LoginScreen
 import com.mobapps.nemt.ui.screens.RegisterScreen
@@ -19,7 +24,9 @@ import com.mobapps.nemt.ui.screens.VerifyEmailScreen
 import com.mobapps.nemt.ui.screens.WelcomeScreen
 import com.mobapps.nemt.ui.screens.BookingScreen
 import com.mobapps.nemt.ui.screens.HomeScreen
+import com.mobapps.nemt.ui.screens.HelpSupportScreen
 import com.mobapps.nemt.ui.screens.ProfileScreen
+import com.mobapps.nemt.ui.screens.TermsPrivacyScreen
 import com.mobapps.nemt.ui.screens.TripsScreen
 
 @Composable
@@ -27,6 +34,7 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val auth = remember { FirebaseAuth.getInstance() }
     val currentUser = auth.currentUser
+    var currentProfile by remember(currentUser?.uid) { mutableStateOf<UserProfile?>(null) }
     val startDestination = remember(currentUser?.uid, currentUser?.isEmailVerified) {
         when {
             currentUser == null -> Routes.Welcome.route
@@ -36,12 +44,26 @@ fun AppNavigation() {
     }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val userEmail = auth.currentUser?.email.orEmpty()
-    val userName = auth.currentUser?.displayName
-        ?.takeIf { it.isNotBlank() }
-        ?: userEmail.substringBefore("@").replaceFirstChar { char ->
+    val authEmail = auth.currentUser?.email.orEmpty()
+    val userEmail = currentProfile?.email ?: authEmail
+    val userName = currentProfile?.firstName?.takeIf { it.isNotBlank() }
+        ?: auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
+        ?: authEmail.substringBefore("@").replaceFirstChar { char ->
             if (char.isLowerCase()) char.titlecase() else char.toString()
         }
+
+    LaunchedEffect(currentUser?.uid) {
+        if (currentUser == null) {
+            currentProfile = null
+            return@LaunchedEffect
+        }
+
+        UserProfileRepository.ensureProfile(currentUser) { result ->
+            result.onSuccess { profile ->
+                currentProfile = profile
+            }
+        }
+    }
 
     val showBottomBar = currentRoute == Routes.Home.route ||
             currentRoute == Routes.Trips.route ||
@@ -153,11 +175,35 @@ fun AppNavigation() {
 
             composable(Routes.Profile.route) {
                 ProfileScreen(
-                    userEmail = userEmail,
+                    authEmail = authEmail,
                     onLogout = {
+                        currentProfile = null
                         auth.signOut()
                         navigateToRoot(Routes.Welcome.route)
                     },
+                    onProfileUpdated = { updatedProfile ->
+                        currentProfile = updatedProfile
+                    },
+                    onOpenHelpSupport = {
+                        navController.navigate(Routes.HelpSupport.route)
+                    },
+                    onOpenTermsPrivacy = {
+                        navController.navigate(Routes.TermsPrivacy.route)
+                    },
+                    contentPadding = innerPadding
+                )
+            }
+
+            composable(Routes.HelpSupport.route) {
+                HelpSupportScreen(
+                    onBack = { navController.popBackStack() },
+                    contentPadding = innerPadding
+                )
+            }
+
+            composable(Routes.TermsPrivacy.route) {
+                TermsPrivacyScreen(
+                    onBack = { navController.popBackStack() },
                     contentPadding = innerPadding
                 )
             }
