@@ -4,13 +4,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.google.firebase.auth.FirebaseAuth
 import com.mobapps.nemt.ui.components.BottomNavigationBar
+import com.mobapps.nemt.ui.screens.LoginScreen
+import com.mobapps.nemt.ui.screens.RegisterScreen
+import com.mobapps.nemt.ui.screens.VerifyEmailScreen
+import com.mobapps.nemt.ui.screens.WelcomeScreen
 import com.mobapps.nemt.ui.screens.BookingScreen
 import com.mobapps.nemt.ui.screens.HomeScreen
 import com.mobapps.nemt.ui.screens.ProfileScreen
@@ -19,12 +25,36 @@ import com.mobapps.nemt.ui.screens.TripsScreen
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
+    val auth = remember { FirebaseAuth.getInstance() }
+    val currentUser = auth.currentUser
+    val startDestination = remember(currentUser?.uid, currentUser?.isEmailVerified) {
+        when {
+            currentUser == null -> Routes.Welcome.route
+            currentUser.isEmailVerified -> Routes.Home.route
+            else -> Routes.VerifyEmail.route
+        }
+    }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val userEmail = auth.currentUser?.email.orEmpty()
+    val userName = auth.currentUser?.displayName
+        ?.takeIf { it.isNotBlank() }
+        ?: userEmail.substringBefore("@").replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase() else char.toString()
+        }
 
     val showBottomBar = currentRoute == Routes.Home.route ||
             currentRoute == Routes.Trips.route ||
             currentRoute == Routes.Profile.route
+
+    val navigateToRoot: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.id) {
+                inclusive = true
+            }
+            launchSingleTop = true
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -47,10 +77,48 @@ fun AppNavigation() {
 
         NavHost(
             navController = navController,
-            startDestination = Routes.Home.route
+            startDestination = startDestination
         ) {
+            composable(Routes.Welcome.route) {
+                WelcomeScreen(
+                    onLoginClick = { navController.navigate(Routes.Login.route) },
+                    onRegisterClick = { navController.navigate(Routes.Register.route) }
+                )
+            }
+
+            composable(Routes.Login.route) {
+                LoginScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenRegister = { navController.navigate(Routes.Register.route) },
+                    onLoginSuccess = { navigateToRoot(Routes.Home.route) },
+                    onNeedsVerification = { navigateToRoot(Routes.VerifyEmail.route) }
+                )
+            }
+
+            composable(Routes.Register.route) {
+                RegisterScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenLogin = { navController.navigate(Routes.Login.route) },
+                    onRegistrationPendingVerification = {
+                        navigateToRoot(Routes.VerifyEmail.route)
+                    }
+                )
+            }
+
+            composable(Routes.VerifyEmail.route) {
+                VerifyEmailScreen(
+                    email = auth.currentUser?.email.orEmpty(),
+                    onVerified = { navigateToRoot(Routes.Home.route) },
+                    onLogout = {
+                        auth.signOut()
+                        navigateToRoot(Routes.Welcome.route)
+                    }
+                )
+            }
+
             composable(Routes.Home.route) {
                 HomeScreen(
+                    userName = userName.ifBlank { "Passenger" },
                     onGoToTrips = {
                         navController.navigate(Routes.Trips.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -85,7 +153,11 @@ fun AppNavigation() {
 
             composable(Routes.Profile.route) {
                 ProfileScreen(
-                    onBack = { navController.popBackStack() },
+                    userEmail = userEmail,
+                    onLogout = {
+                        auth.signOut()
+                        navigateToRoot(Routes.Welcome.route)
+                    },
                     contentPadding = innerPadding
                 )
             }

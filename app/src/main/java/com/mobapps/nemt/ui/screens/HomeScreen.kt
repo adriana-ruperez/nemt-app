@@ -23,10 +23,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.DirectionsBus
@@ -61,6 +61,7 @@ private val DarkChip = Color(0xFF1F222A)
 
 @Composable
 fun HomeScreen(
+    userName: String,
     onGoToTrips: () -> Unit,
     onGoToProfile: () -> Unit,
     onGoToBooking: () -> Unit,
@@ -89,6 +90,7 @@ fun HomeScreen(
                     modifier = Modifier.padding(horizontal = 18.dp)
                 ) {
                     GreetingCard(
+                        userName = userName,
                         onNewRideClick = onGoToBooking,
                         onUpcomingClick = onGoToTrips
                     )
@@ -168,7 +170,7 @@ private fun TopMapSection() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.HelpOutline,
+                    imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
@@ -215,6 +217,7 @@ private fun TopMapSection() {
 
 @Composable
 private fun GreetingCard(
+    userName: String,
     onNewRideClick: () -> Unit,
     onUpcomingClick: () -> Unit
 ) {
@@ -231,7 +234,7 @@ private fun GreetingCard(
                 .padding(18.dp)
         ) {
             Text(
-                text = "Good afternoon, John",
+                text = "Good afternoon, $userName",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary

@@ -24,10 +24,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PanToolAlt
@@ -53,7 +53,8 @@ private val BrandBlue = Color(0xFF2F8FFF)
 
 @Composable
 fun ProfileScreen(
-    onBack: () -> Unit,
+    userEmail: String,
+    onLogout: () -> Unit,
     contentPadding: PaddingValues
 ) {
     Surface(
@@ -69,20 +70,25 @@ fun ProfileScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            HeaderSection()
+            HeaderSection(
+                userEmail = userEmail
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             ProfileContent(
                 modifier = Modifier.weight(1f),
-                onLogoutClick = onBack
+                userEmail = userEmail,
+                onLogoutClick = onLogout
             )
         }
     }
 }
 
 @Composable
-private fun HeaderSection() {
+private fun HeaderSection(
+    userEmail: String
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -107,10 +113,22 @@ private fun HeaderSection() {
             modifier = Modifier.weight(1f)
         ) {
             Text(
-                text = "John Doe",
+                text = userEmail.substringBefore("@")
+                    .replaceFirstChar { char ->
+                        if (char.isLowerCase()) char.titlecase() else char.toString()
+                    }
+                    .ifBlank { "Account" },
                 fontSize = 18.sp,
                 fontWeight = FontWeight.W700,
                 color = TextPrimary
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = userEmail.ifBlank { "No email available" },
+                fontSize = 13.sp,
+                color = TextSecondary
             )
         }
     }
@@ -119,6 +137,7 @@ private fun HeaderSection() {
 @Composable
 private fun ProfileContent(
     modifier: Modifier = Modifier,
+    userEmail: String,
     onLogoutClick: () -> Unit
 ) {
     Column(
@@ -137,8 +156,8 @@ private fun ProfileContent(
             )
             DividerLine()
             InfoRow(
-                label = "Phone",
-                value = "+1 (305) 555 1234"
+                label = "Email",
+                value = userEmail.ifBlank { "Not available" }
             )
             DividerLine()
             InfoRow(
@@ -179,7 +198,7 @@ private fun ProfileContent(
 
         CardContainer {
             SettingsTile(
-                icon = Icons.Outlined.HelpOutline,
+                icon = Icons.AutoMirrored.Outlined.HelpOutline,
                 label = "Help & support",
                 subtitle = "Contact our team"
             )
