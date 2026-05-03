@@ -1,5 +1,6 @@
 package com.mobapps.nemt.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.mobapps.nemt.R
+import com.mobapps.nemt.data.UserProfileRepository
 
 private val AuthBackground = Color(0xFFF3F4F7)
 private val AuthSurface = Color(0xFFFFFFFF)
@@ -96,7 +98,13 @@ fun WelcomeScreen(
             color = AuthPrimary
         )
 
+        Spacer(modifier = Modifier.height(8.dp))
 
+        Text(
+            text = "Login or register",
+            color = AuthSecondary,
+            fontSize = 15.sp
+        )
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -134,8 +142,8 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         AuthHeader(
-            title = "NEMT",
-            subtitle = " "
+            title = "Login",
+            subtitle = "Email and password"
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -196,10 +204,17 @@ fun LoginScreen(
                         }
 
                         val user = auth.currentUser
-                        if (user?.isEmailVerified == true) {
-                            onLoginSuccess()
-                        } else {
-                            onNeedsVerification()
+                        if (user == null) {
+                            message = "Session unavailable."
+                            return@addOnCompleteListener
+                        }
+
+                        UserProfileRepository.ensureProfile(user) {
+                            if (user.isEmailVerified) {
+                                onLoginSuccess()
+                            } else {
+                                onNeedsVerification()
+                            }
                         }
                     }
             }
@@ -237,7 +252,7 @@ fun RegisterScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         AuthHeader(
-            title = "NEMT",
+            title = "Register",
             subtitle = "Create a new account"
         )
 
@@ -326,14 +341,32 @@ fun RegisterScreen(
                             return@addOnCompleteListener
                         }
 
-                        auth.currentUser
-                            ?.sendEmailVerification()
-                            ?.addOnCompleteListener {
+                        val user = auth.currentUser
+                        if (user == null) {
+                            isLoading = false
+                            isError = true
+                            message = "Profile setup failed."
+                            return@addOnCompleteListener
+                        }
+
+                        UserProfileRepository.createDefaultProfile(user) { profileResult ->
+                            if (profileResult.isFailure) {
+                                user.delete().addOnCompleteListener {
+                                    isLoading = false
+                                    isError = true
+                                    message = profileResult.exceptionOrNull()?.localizedMessage
+                                        ?: "Profile setup failed."
+                                }
+                                return@createDefaultProfile
+                            }
+
+                            user.sendEmailVerification().addOnCompleteListener {
                                 isLoading = false
                                 isError = false
                                 message = "Verification email sent."
                                 onRegistrationPendingVerification()
                             }
+                        }
                     }
             }
         )
@@ -521,7 +554,7 @@ private fun AuthLogo() {
             .border(1.dp, AuthBorder, RoundedCornerShape(30.dp)),
         contentAlignment = Alignment.Center
     ) {
-        androidx.compose.foundation.Image(
+        Image(
             painter = painterResource(id = R.drawable.logo_sinfondo),
             contentDescription = "NEMT logo",
             modifier = Modifier.size(76.dp),
@@ -650,16 +683,8 @@ private fun PasswordTextField(
         trailingIcon = {
             IconButton(onClick = onToggleVisibility) {
                 Icon(
-                    imageVector = if (isVisible) {
-                        Icons.Outlined.VisibilityOff
-                    } else {
-                        Icons.Outlined.Visibility
-                    },
-                    contentDescription = if (isVisible) {
-                        "Hide password"
-                    } else {
-                        "Show password"
-                    }
+                    imageVector = if (isVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    contentDescription = if (isVisible) "Hide password" else "Show password"
                 )
             }
         }
