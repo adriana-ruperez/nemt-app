@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import {HttpsError, onCall} from "firebase-functions/v2/https";
+import {HttpsError, onCall, onRequest} from "firebase-functions/v2/https";
 
 admin.initializeApp();
 
@@ -9,6 +9,10 @@ type CreateRidePayload = {
   scheduledAtMillis?: unknown;
   dateTimeDisplay?: unknown;
   vehicle?: unknown;
+};
+
+type CancelRidePayload = {
+  rideId?: unknown;
 };
 
 type RideStopPayload = {
@@ -48,6 +52,13 @@ function asRequiredNumber(value: unknown, field: string): number {
     throw new HttpsError("invalid-argument", `${field} must be a valid number.`);
   }
   return value;
+}
+
+function asRequiredRideId(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new HttpsError("invalid-argument", "rideId is required.");
+  }
+  return value.trim();
 }
 
 function asRideStop(value: unknown, field: string) {
@@ -134,4 +145,92 @@ export const createRide = onCall({region: "us-central1", cors: true}, async (req
   });
 
   return {rideId: rideRef.id};
+});
+
+export const cancelRide = onCall({region: "us-central1", cors: true}, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+
+  const data = (request.data ?? {}) as CancelRidePayload;
+  const rideId = asRequiredRideId(data.rideId);
+  const rideRef = admin.firestore().collection("rides").doc(rideId);
+  const snapshot = await rideRef.get();
+
+  if (!snapshot.exists) {
+    throw new HttpsError("not-found", "Ride not found.");
+  }
+
+  const ride = snapshot.data() as {riderUid?: string; lifecycleStatus?: string} | undefined;
+  if (ride?.riderUid !== uid) {
+    throw new HttpsError("permission-denied", "You cannot cancel this ride.");
+  }
+
+  if (ride.lifecycleStatus === "COMPLETED") {
+    throw new HttpsError("failed-precondition", "Completed rides cannot be cancelled.");
+  }
+
+  if (ride.lifecycleStatus === "CANCELLED") {
+    return {rideId, lifecycleStatus: "CANCELLED"};
+  }
+
+  await rideRef.update({
+    lifecycleStatus: "CANCELLED",
+    "timestamps.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {rideId, lifecycleStatus: "CANCELLED"};
+});
+
+export const cancelRideHttp = onRequest({region: "us-central1", cors: true}, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({error: "method-not-allowed"});
+    return;
+  }
+
+  const authHeader = request.header("Authorization") ?? "";
+  const tokenMatch = authHeader.match(/^Bearer (.+)$/i);
+  if (!tokenMatch) {
+    response.status(401).json({error: "missing-auth-token"});
+    return;
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(tokenMatch[1]);
+  } catch {
+    response.status(401).json({error: "invalid-auth-token"});
+    return;
+  }
+
+  const rideId = asRequiredRideId(request.body?.rideId);
+  const uid = decodedToken.uid;
+  const rideRef = admin.firestore().collection("rides").doc(rideId);
+  const snapshot = await rideRef.get();
+
+  if (!snapshot.exists) {
+    response.status(404).json({error: "ride-not-found"});
+    return;
+  }
+
+  const ride = snapshot.data() as {riderUid?: string; lifecycleStatus?: string} | undefined;
+  if (ride?.riderUid !== uid) {
+    response.status(403).json({error: "permission-denied"});
+    return;
+  }
+
+  if (ride.lifecycleStatus === "COMPLETED") {
+    response.status(409).json({error: "completed-rides-cannot-be-cancelled"});
+    return;
+  }
+
+  if (ride.lifecycleStatus !== "CANCELLED") {
+    await rideRef.update({
+      lifecycleStatus: "CANCELLED",
+      "timestamps.updatedAt": admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  response.status(200).json({rideId, lifecycleStatus: "CANCELLED"});
 });

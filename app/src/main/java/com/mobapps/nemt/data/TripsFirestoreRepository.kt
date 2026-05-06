@@ -1,15 +1,24 @@
 package com.mobapps.nemt.data
 
 import com.google.android.gms.maps.model.LatLng
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.maps.android.SphericalUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
@@ -22,9 +31,12 @@ import kotlin.random.Random
 object TripsFirestoreRepository {
 
     private const val COLLECTION = "rides"
+    private const val CANCEL_RIDE_URL =
+        "https://us-central1-nemt-mobapps-423cf.cloudfunctions.net/cancelRideHttp"
 
     private val firestore by lazy { FirebaseFirestore.getInstance() }
     private val tripsCollection by lazy { firestore.collection(COLLECTION) }
+    private val repoScope = CoroutineScope(Dispatchers.IO)
 
     private val _trips = MutableStateFlow<List<TripRecord>>(emptyList())
     val trips: StateFlow<List<TripRecord>> = _trips.asStateFlow()
@@ -149,15 +161,82 @@ object TripsFirestoreRepository {
     }
 
     fun cancelTrip(tripId: String, onComplete: (Result<Unit>) -> Unit) {
-        tripsCollection.document(tripId)
-            .update(
-                mapOf(
-                    "lifecycleStatus" to TripLifecycleStatus.CANCELLED.name,
-                    "timestamps.updatedAt" to FieldValue.serverTimestamp()
-                )
-            )
-            .addOnSuccessListener { onComplete(Result.success(Unit)) }
-            .addOnFailureListener { onComplete(Result.failure(it)) }
+        repoScope.launch {
+            runCatching {
+                val user = FirebaseAuth.getInstance().currentUser
+                    ?: error("Authentication required.")
+                val idToken = user.getIdToken(false).await().token
+                    ?: error("Missing auth token.")
+                val connection = URL(CANCEL_RIDE_URL).openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.connectTimeout = 15_000
+                    connection.readTimeout = 15_000
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.setRequestProperty("Authorization", "Bearer $idToken")
+
+                    val body = JSONObject()
+                        .put("rideId", tripId)
+                        .toString()
+                    connection.outputStream.use { output ->
+                        output.write(body.toByteArray(Charsets.UTF_8))
+                    }
+
+                    val code = connection.responseCode
+                    val stream = if (code in 200..299) {
+                        connection.inputStream
+                    } else {
+                        connection.errorStream
+                    }
+                    val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (code !in 200..299) {
+                        val parsedError = runCatching {
+                            JSONObject(responseText).optString("error")
+                        }.getOrNull().orEmpty()
+                        error(parsedError.ifBlank { "HTTP $code" })
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }.onSuccess {
+                _trips.value = _trips.value.map { trip ->
+                    if (trip.id == tripId) {
+                        trip.copy(
+                            lifecycleStatus = TripLifecycleStatus.CANCELLED,
+                            updatedAtMillis = System.currentTimeMillis()
+                        )
+                    } else {
+                        trip
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    onComplete(Result.success(Unit))
+                }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    onComplete(
+                        Result.failure(
+                            IllegalStateException(extractCancelErrorMessage(error), error)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun extractCancelErrorMessage(error: Throwable): String {
+        val message = error.localizedMessage?.trim().orEmpty()
+        return when (message) {
+            "missing-auth-token" -> "Authentication token missing."
+            "invalid-auth-token" -> "Your session is invalid. Sign in again."
+            "ride-not-found" -> "Ride not found."
+            "permission-denied" -> "You cannot cancel this ride."
+            "completed-rides-cannot-be-cancelled" -> "Completed rides cannot be cancelled."
+            "Authentication required." -> "Please sign in again."
+            "Missing auth token." -> "Authentication token missing."
+            else -> if (message.isBlank()) "Could not cancel this ride." else message
+        }
     }
 
     /**
