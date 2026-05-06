@@ -88,13 +88,16 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctionsException
+import com.google.firebase.functions.FirebaseFunctions
 import com.mobapps.nemt.BuildConfig
 import com.mobapps.nemt.R
-import com.mobapps.nemt.data.TripsRepository
 import com.mobapps.nemt.notifications.NemtNotificationType
 import com.mobapps.nemt.notifications.NemtNotifications
 import com.mobapps.nemt.ui.rememberRidePlannerViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -167,6 +170,8 @@ fun TripOverviewScreen(
     var confirmedTo by remember { mutableStateOf("") }
     var confirmedDateTime by remember { mutableStateOf("") }
     var confirmedVehicle by remember { mutableStateOf("") }
+    var confirmError by remember { mutableStateOf<String?>(null) }
+    var isConfirming by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     val cameraPositionState = rememberCameraPositionState {
@@ -549,6 +554,19 @@ fun TripOverviewScreen(
                     }
                     Button(
                         onClick = {
+                            val currentUser = FirebaseAuth.getInstance().currentUser
+                            if (currentUser == null) {
+                                confirmError = "Please sign in to confirm your ride."
+                                return@Button
+                            }
+                            val currentPickupStop = pickupStop
+                            val currentDestinationStop = destinationStop
+                            if (currentPickupStop == null || currentDestinationStop == null) {
+                                confirmError = "Trip details are incomplete. Go back and try again."
+                                return@Button
+                            }
+                            isConfirming = true
+                            confirmError = null
                             val fromLabel = pickupStop?.title?.takeIf { it.isNotBlank() } ?: "Pickup location"
                             val toLabel = destinationStop?.title?.takeIf { it.isNotBlank() } ?: "Destination"
                             val dateTimeLabel = SimpleDateFormat(
@@ -556,35 +574,82 @@ fun TripOverviewScreen(
                                 Locale.getDefault()
                             ).format(Date(scheduledAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis()))
                             val vehicleLabel = selectedVehicle ?: "Unit A12 · Wheelchair Van"
-                            TripsRepository.addConfirmedUpcomingTrip(
-                                from = fromLabel,
-                                to = toLabel,
-                                patientName = "For: You",
-                                vehicle = vehicleLabel,
-                                dateTime = dateTimeLabel
-                            )
-                            NemtNotifications.notifyNow(
-                                context = context,
-                                type = NemtNotificationType.TRIP_CONFIRMED,
-                                title = "Trip confirmed",
-                                body = "Your ride to $toLabel is confirmed for $dateTimeLabel."
-                            )
-                            NemtNotifications.scheduleTripReminder(
-                                context = context,
-                                requestKey = "${fromLabel}_${toLabel}_${dateTimeLabel}".replace(" ", "_"),
-                                scheduledAtMillis = scheduledAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis(),
-                                destination = toLabel
-                            )
-                            confirmedFrom = fromLabel
-                            confirmedTo = toLabel
-                            confirmedDateTime = dateTimeLabel
-                            confirmedVehicle = vehicleLabel
-                            showTripConfirmedDialog = true
+                            scope.launch {
+                                try {
+                                    val liveUser = FirebaseAuth.getInstance().currentUser
+                                    if (liveUser == null) {
+                                        isConfirming = false
+                                        confirmError = "Please sign in to confirm your ride."
+                                        return@launch
+                                    }
+                                    liveUser.getIdToken(false).await()
+                                    val payload = hashMapOf(
+                                        "origin" to mapOf(
+                                            "title" to fromLabel,
+                                            "address" to currentPickupStop.subtitle,
+                                            "placeId" to currentPickupStop.placeId,
+                                            "latitude" to currentPickupStop.latLng.latitude,
+                                            "longitude" to currentPickupStop.latLng.longitude
+                                        ),
+                                        "destination" to mapOf(
+                                            "title" to toLabel,
+                                            "address" to currentDestinationStop.subtitle,
+                                            "placeId" to currentDestinationStop.placeId,
+                                            "latitude" to currentDestinationStop.latLng.latitude,
+                                            "longitude" to currentDestinationStop.latLng.longitude
+                                        ),
+                                        "scheduledAtMillis" to (scheduledAtMillis.takeIf { it > 0L }
+                                            ?: System.currentTimeMillis()),
+                                        "dateTimeDisplay" to dateTimeLabel,
+                                        "vehicle" to vehicleLabel
+                                    )
+                                    callCreateRideCallable(payload)
+                                    isConfirming = false
+                                    NemtNotifications.notifyNow(
+                                        context = context,
+                                        type = NemtNotificationType.TRIP_CONFIRMED,
+                                        title = "Trip confirmed",
+                                        body = "Your ride to $toLabel is confirmed for $dateTimeLabel."
+                                    )
+                                    NemtNotifications.scheduleTripReminder(
+                                        context = context,
+                                        requestKey = "${fromLabel}_${toLabel}_${dateTimeLabel}".replace(" ", "_"),
+                                        scheduledAtMillis = scheduledAtMillis.takeIf { it > 0L }
+                                            ?: System.currentTimeMillis(),
+                                        destination = toLabel
+                                    )
+                                    confirmedFrom = fromLabel
+                                    confirmedTo = toLabel
+                                    confirmedDateTime = dateTimeLabel
+                                    confirmedVehicle = vehicleLabel
+                                    showTripConfirmedDialog = true
+                                } catch (error: Exception) {
+                                    isConfirming = false
+                                    confirmError = error.localizedMessage
+                                        ?: "Could not save this ride. Try again."
+                                }
+                            }
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = !isConfirming
                     ) {
-                        Text(context.getString(R.string.trip_confirm))
+                        if (isConfirming) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(context.getString(R.string.trip_confirm))
+                        }
                     }
+                }
+
+                confirmError?.let { error ->
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -678,6 +743,24 @@ fun TripOverviewScreen(
             }
         }
     }
+}
+
+private suspend fun callCreateRideCallable(payload: Map<String, Any?>) {
+    val primary = FirebaseFunctions.getInstance("us-central1")
+    try {
+        primary.getHttpsCallable("createRide").call(payload).await()
+        return
+    } catch (error: Exception) {
+        val code = (error as? FirebaseFunctionsException)?.code
+        if (code != FirebaseFunctionsException.Code.NOT_FOUND) {
+            throw error
+        }
+    }
+
+    FirebaseFunctions.getInstance("europe-west1")
+        .getHttpsCallable("createRide")
+        .call(payload)
+        .await()
 }
 
 @Composable
