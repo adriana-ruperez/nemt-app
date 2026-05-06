@@ -18,10 +18,13 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.android.gms.maps.model.LatLng
 import com.mobapps.nemt.data.UserProfile
 import com.mobapps.nemt.data.UserProfileRepository
 import com.mobapps.nemt.ui.components.BottomNavigationBar
+import com.mobapps.nemt.ui.rememberRidePlannerViewModel
 import com.mobapps.nemt.ui.screens.LoginScreen
+import com.mobapps.nemt.ui.screens.RecentDestinationUi
 import com.mobapps.nemt.ui.screens.RegisterScreen
 import com.mobapps.nemt.ui.screens.VerifyEmailScreen
 import com.mobapps.nemt.ui.screens.WelcomeScreen
@@ -37,6 +40,7 @@ import com.mobapps.nemt.ui.screens.TripsScreen
 fun AppNavigation() {
     val navController = rememberNavController()
     val auth = remember { FirebaseAuth.getInstance() }
+    val ridePlanner = rememberRidePlannerViewModel()
     val currentUser = auth.currentUser
     var currentProfile by remember(currentUser?.uid) { mutableStateOf<UserProfile?>(null) }
     val startDestination = remember(currentUser?.uid, currentUser?.isEmailVerified) {
@@ -172,6 +176,22 @@ fun AppNavigation() {
                         }
                     },
                     onGoToBooking = {
+                        navController.navigate(Routes.Booking.route)
+                    },
+                    onGoToBookingWithDestination = { destination ->
+                        ridePlanner.preloadDestinationForNewBooking(
+                            title = destination.title,
+                            subtitle = destination.subtitle,
+                            placeId = destination.placeId,
+                            latLng = if (
+                                destination.latitude != null &&
+                                destination.longitude != null
+                            ) {
+                                LatLng(destination.latitude, destination.longitude)
+                            } else {
+                                null
+                            }
+                        )
                         navController.navigate(Routes.Booking.route)
                     },
                     onNeedAssistanceClick = {

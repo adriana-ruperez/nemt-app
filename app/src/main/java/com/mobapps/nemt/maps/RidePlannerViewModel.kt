@@ -182,6 +182,31 @@ class RidePlannerViewModel(application: Application) : AndroidViewModel(applicat
         refreshRoutePolyline()
     }
 
+    /**
+     * Starts a fresh booking session with destination prefilled from a previous ride.
+     * Pickup, time and vehicle remain empty so the rest of the flow works as usual.
+     */
+    fun preloadDestinationForNewBooking(
+        title: String,
+        subtitle: String,
+        placeId: String?,
+        latLng: LatLng?
+    ) {
+        clearTripPlanningSession()
+        _destinationQuery.value = title
+        _destinationPredictions.value = emptyList()
+        _destinationStop.value = latLng?.let {
+            RideStop(
+                placeId = placeId,
+                title = title,
+                subtitle = subtitle,
+                latLng = it
+            )
+        }
+        destSessionToken = AutocompleteSessionToken.newInstance()
+        refreshRoutePolyline()
+    }
+
     fun setVehicleChoice(vehicle: String) {
         _selectedVehicle.value = vehicle
     }
