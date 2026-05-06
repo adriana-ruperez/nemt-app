@@ -7,6 +7,10 @@ sealed class Routes(val route: String) {
     object VerifyEmail : Routes("verify_email")
     object Home : Routes("home")
     object Trips : Routes("trips")
+    object Messages : Routes("messages")
+    object Conversation : Routes("conversation/{conversationId}") {
+        fun createRoute(conversationId: String) = "conversation/$conversationId"
+    }
     object Profile : Routes("profile")
     object HelpSupport : Routes("help_support")
     object TermsPrivacy : Routes("terms_privacy")
