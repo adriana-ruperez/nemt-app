@@ -55,6 +55,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.firebase.auth.FirebaseAuth
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
@@ -62,7 +63,10 @@ import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.mobapps.nemt.BuildConfig
 import com.mobapps.nemt.R
+import com.mobapps.nemt.data.TripRecord
+import com.mobapps.nemt.data.TripsFirestoreRepository
 import com.mobapps.nemt.ui.rememberRidePlannerViewModel
+import kotlinx.coroutines.awaitCancellation
 
 private val BackgroundColor = Color(0xFFF3F4F7)
 private val CardColor = Color(0xFFFFFFFF)
@@ -74,19 +78,31 @@ private val BrandBlue = Color(0xFF2F8FFF)
 private val DarkChip = Color(0xFF1F222A)
 private val DefaultMapCenter = LatLng(25.7617, -80.1918)
 
+data class RecentDestinationUi(
+    val title: String,
+    val subtitle: String,
+    val placeId: String?,
+    val latitude: Double?,
+    val longitude: Double?
+)
+
 @Composable
 fun HomeScreen(
     userName: String,
     onGoToTrips: () -> Unit,
     onGoToProfile: () -> Unit,
     onGoToBooking: () -> Unit,
+    onGoToBookingWithDestination: (RecentDestinationUi) -> Unit,
     onNeedAssistanceClick: () -> Unit,
     contentPadding: PaddingValues
 ) {
     val ridePlanner = rememberRidePlannerViewModel()
     val deviceLocation by ridePlanner.deviceLocation.collectAsState()
+    val firestoreTrips by TripsFirestoreRepository.trips.collectAsState()
     val hasMapsKey = BuildConfig.MAPS_API_KEY.isNotBlank()
     val context = LocalContext.current
+    val currentUserUid = FirebaseAuth.getInstance().currentUser?.uid
+    val recentDestinations = firestoreTrips.toRecentDestinations()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -117,6 +133,19 @@ fun HomeScreen(
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
+        }
+    }
+
+    LaunchedEffect(currentUserUid) {
+        if (currentUserUid == null) {
+            TripsFirestoreRepository.stopListening()
+            return@LaunchedEffect
+        }
+        TripsFirestoreRepository.startListening(currentUserUid)
+        try {
+            awaitCancellation()
+        } finally {
+            TripsFirestoreRepository.stopListening()
         }
     }
 
@@ -161,7 +190,8 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     RecentDestinationsSection(
-                        onDestinationClick = onGoToBooking
+                        destinations = recentDestinations,
+                        onDestinationClick = onGoToBookingWithDestination
                     )
 
                     Spacer(modifier = Modifier.height(32.dp))
@@ -495,7 +525,8 @@ private fun DestinationSearchSection(
 
 @Composable
 private fun RecentDestinationsSection(
-    onDestinationClick: () -> Unit
+    destinations: List<RecentDestinationUi>,
+    onDestinationClick: (RecentDestinationUi) -> Unit
 ) {
     Column {
         Text(
@@ -514,30 +545,26 @@ private fun RecentDestinationsSection(
                 .background(CardColor)
                 .border(1.dp, BorderSubtle, RoundedCornerShape(18.dp))
         ) {
-            DestinationItem(
-                icon = Icons.Outlined.AccessTime,
-                title = "Central Medical Center",
-                subtitle = "Downtown, Miami",
-                onClick = onDestinationClick
-            )
-
-            DividerLine()
-
-            DestinationItem(
-                icon = Icons.Outlined.AccessTime,
-                title = "North Rehabilitation Clinic",
-                subtitle = "Uptown, Miami",
-                onClick = onDestinationClick
-            )
-
-            DividerLine()
-
-            DestinationItem(
-                icon = Icons.Outlined.DirectionsBus,
-                title = "Dialysis Center",
-                subtitle = "Westside, Miami",
-                onClick = onDestinationClick
-            )
+            if (destinations.isEmpty()) {
+                Text(
+                    text = "Your recent ride destinations will appear here.",
+                    fontSize = 14.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp)
+                )
+            } else {
+                destinations.forEachIndexed { index, destination ->
+                    DestinationItem(
+                        icon = if (index == 0) Icons.Outlined.AccessTime else Icons.Outlined.DirectionsBus,
+                        title = destination.title,
+                        subtitle = destination.subtitle.ifBlank { "Saved from previous ride" },
+                        onClick = { onDestinationClick(destination) }
+                    )
+                    if (index != destinations.lastIndex) {
+                        DividerLine()
+                    }
+                }
+            }
         }
     }
 }
@@ -603,4 +630,25 @@ private fun DividerLine() {
             .height(1.dp)
             .background(BorderSubtle)
     )
+}
+
+private fun List<TripRecord>.toRecentDestinations(limit: Int = 3): List<RecentDestinationUi> {
+    val seen = linkedSetOf<String>()
+    val out = mutableListOf<RecentDestinationUi>()
+    for (trip in this) {
+        val title = trip.destinationTitle.trim()
+        if (title.isBlank()) continue
+        val subtitle = trip.destinationAddress.trim()
+        val key = "${title.lowercase()}|${subtitle.lowercase()}|${trip.destinationLatitude}|${trip.destinationLongitude}"
+        if (!seen.add(key)) continue
+        out += RecentDestinationUi(
+            title = title,
+            subtitle = subtitle,
+            placeId = trip.destinationPlaceId,
+            latitude = trip.destinationLatitude,
+            longitude = trip.destinationLongitude
+        )
+        if (out.size >= limit) break
+    }
+    return out
 }

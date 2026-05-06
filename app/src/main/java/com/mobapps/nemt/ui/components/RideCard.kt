@@ -155,19 +155,13 @@ fun RideCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Bottom row: patient + vehicle
+        // Bottom row: vehicle
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = patientName,
-                fontSize = 14.sp,
-                color = TextSecondary
-            )
-
-            if (vehicle != null) {
+            vehicle?.takeIf { it.isNotBlank() }?.let { vehicleLabel ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -181,7 +175,7 @@ fun RideCard(
                     Spacer(modifier = Modifier.width(4.dp))
 
                     Text(
-                        text = vehicle,
+                        text = vehicleLabel,
                         fontSize = 14.sp,
                         color = TextSecondary
                     )
