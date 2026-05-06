@@ -4,9 +4,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Icon
@@ -45,6 +47,12 @@ private val bottomBarItems = listOf(
         label = "Rides",
         icon = Icons.Outlined.CalendarMonth,
         selectedIcon = Icons.Filled.CalendarMonth
+    ),
+    BottomBarItem(
+        route = Routes.Messages.route,
+        label = "Messages",
+        icon = Icons.Outlined.ChatBubbleOutline,
+        selectedIcon = Icons.Filled.ChatBubble
     ),
     BottomBarItem(
         route = Routes.Profile.route,

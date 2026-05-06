@@ -10,10 +10,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -24,6 +27,8 @@ import com.mobapps.nemt.data.UserProfileRepository
 import com.mobapps.nemt.ui.components.BottomNavigationBar
 import com.mobapps.nemt.ui.rememberRidePlannerViewModel
 import com.mobapps.nemt.ui.screens.LoginScreen
+import com.mobapps.nemt.ui.screens.ConversationScreen
+import com.mobapps.nemt.ui.screens.MessagesScreen
 import com.mobapps.nemt.ui.screens.RecentDestinationUi
 import com.mobapps.nemt.ui.screens.RegisterScreen
 import com.mobapps.nemt.ui.screens.VerifyEmailScreen
@@ -83,6 +88,7 @@ fun AppNavigation() {
 
     val showBottomBar = currentRoute == Routes.Home.route ||
             currentRoute == Routes.Trips.route ||
+            currentRoute == Routes.Messages.route ||
             currentRoute == Routes.Profile.route
 
     val navigateToRoot: (String) -> Unit = { route ->
@@ -208,6 +214,15 @@ fun AppNavigation() {
                 )
             }
 
+            composable(Routes.Messages.route) {
+                MessagesScreen(
+                    contentPadding = innerPadding,
+                    onOpenConversation = { conversationId ->
+                        navController.navigate(Routes.Conversation.createRoute(conversationId))
+                    }
+                )
+            }
+
             composable(Routes.Profile.route) {
                 ProfileScreen(
                     authEmail = authEmail,
@@ -258,7 +273,25 @@ fun AppNavigation() {
             composable(Routes.TripOverview.route) {
                 TripOverviewScreen(
                     onClose = { navController.popBackStack() },
+                    onOpenConversation = { conversationId ->
+                        navController.navigate(Routes.Messages.route) {
+                            popUpTo(Routes.TripOverview.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                        navController.navigate(Routes.Conversation.createRoute(conversationId))
+                    },
                     contentPadding = innerPadding
+                )
+            }
+
+            composable(
+                route = Routes.Conversation.route,
+                arguments = listOf(navArgument("conversationId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val conversationId = backStackEntry.arguments?.getString("conversationId").orEmpty()
+                ConversationScreen(
+                    conversationId = conversationId,
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

@@ -111,6 +111,7 @@ import kotlin.math.pow
 @Composable
 fun TripOverviewScreen(
     onClose: () -> Unit,
+    onOpenConversation: (String) -> Unit,
     contentPadding: PaddingValues
 ) {
     val ridePlanner = rememberRidePlannerViewModel()
@@ -171,6 +172,8 @@ fun TripOverviewScreen(
     var confirmedTo by remember { mutableStateOf("") }
     var confirmedDateTime by remember { mutableStateOf("") }
     var confirmedVehicle by remember { mutableStateOf("") }
+    var confirmedDriverName by remember { mutableStateOf("") }
+    var confirmedDriverConversationId by remember { mutableStateOf("") }
     var confirmError by remember { mutableStateOf<String?>(null) }
     var isConfirming by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
@@ -604,7 +607,7 @@ fun TripOverviewScreen(
                                         "dateTimeDisplay" to dateTimeLabel,
                                         "vehicle" to vehicleLabel
                                     )
-                                    callCreateRideCallable(payload)
+                                    val createRideResult = callCreateRideCallable(payload)
                                     isConfirming = false
                                     NemtNotifications.notifyNow(
                                         context = context,
@@ -623,6 +626,8 @@ fun TripOverviewScreen(
                                     confirmedTo = toLabel
                                     confirmedDateTime = dateTimeLabel
                                     confirmedVehicle = vehicleLabel
+                                    confirmedDriverName = createRideResult["driverName"] as? String ?: ""
+                                    confirmedDriverConversationId = createRideResult["driverConversationId"] as? String ?: ""
                                     showTripConfirmedDialog = true
                                 } catch (error: Exception) {
                                     isConfirming = false
@@ -729,6 +734,41 @@ fun TripOverviewScreen(
                         }
                     }
 
+                    confirmedDriverName.takeIf { it.isNotBlank() }?.let { driverName ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.30f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Your driver has been confirmed.",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "$driverName will handle your ride. If you want to contact the driver, open the chat below.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                TextButton(
+                                    onClick = {
+                                        if (confirmedDriverConversationId.isNotBlank()) {
+                                            showTripConfirmedDialog = false
+                                            ridePlanner.clearTripPlanningSession()
+                                            onOpenConversation(confirmedDriverConversationId)
+                                        }
+                                    }
+                                ) {
+                                    Text("Open driver chat")
+                                }
+                            }
+                        }
+                    }
+
                     Button(
                         onClick = {
                             showTripConfirmedDialog = false
@@ -746,11 +786,11 @@ fun TripOverviewScreen(
     }
 }
 
-private suspend fun callCreateRideCallable(payload: Map<String, Any?>) {
+private suspend fun callCreateRideCallable(payload: Map<String, Any?>): Map<*, *> {
     val primary = FirebaseFunctions.getInstance("us-central1")
     try {
-        primary.getHttpsCallable("createRide").call(payload).await()
-        return
+        return primary.getHttpsCallable("createRide").call(payload).await().data as? Map<*, *>
+            ?: emptyMap<String, Any>()
     } catch (error: Exception) {
         val code = (error as? FirebaseFunctionsException)?.code
         if (code != FirebaseFunctionsException.Code.NOT_FOUND) {
@@ -758,10 +798,11 @@ private suspend fun callCreateRideCallable(payload: Map<String, Any?>) {
         }
     }
 
-    FirebaseFunctions.getInstance("europe-west1")
+    return FirebaseFunctions.getInstance("europe-west1")
         .getHttpsCallable("createRide")
         .call(payload)
         .await()
+        .data as? Map<*, *> ?: emptyMap<String, Any>()
 }
 
 @Composable

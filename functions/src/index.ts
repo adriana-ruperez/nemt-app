@@ -3,6 +3,14 @@ import {HttpsError, onCall, onRequest} from "firebase-functions/v2/https";
 
 admin.initializeApp();
 
+const DRIVER_POOL = [
+  {id: "driver_mason", name: "Mason Reed"},
+  {id: "driver_olivia", name: "Olivia Brooks"},
+  {id: "driver_elias", name: "Elias Turner"},
+  {id: "driver_nora", name: "Nora Bennett"},
+  {id: "driver_isaac", name: "Isaac Foster"},
+];
+
 type CreateRidePayload = {
   origin?: unknown;
   destination?: unknown;
@@ -13,6 +21,11 @@ type CreateRidePayload = {
 
 type CancelRidePayload = {
   rideId?: unknown;
+};
+
+type SendMessagePayload = {
+  conversationId?: unknown;
+  text?: unknown;
 };
 
 type RideStopPayload = {
@@ -82,6 +95,13 @@ function asRideStop(value: unknown, field: string) {
   };
 }
 
+function asConversationId(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new HttpsError("invalid-argument", "conversationId is required.");
+  }
+  return value.trim();
+}
+
 function displayName(profile: UserProfileDoc, fallbackEmail: string): string {
   const first = profile.firstName?.trim() ?? "";
   const last = profile.lastName?.trim() ?? "";
@@ -90,6 +110,65 @@ function displayName(profile: UserProfileDoc, fallbackEmail: string): string {
   const localPart = fallbackEmail.split("@")[0]?.trim() ?? "";
   if (!localPart) return "Account";
   return localPart.charAt(0).toUpperCase() + localPart.slice(1);
+}
+
+function randomDriver() {
+  return DRIVER_POOL[Math.floor(Math.random() * DRIVER_POOL.length)];
+}
+
+async function upsertConversation(
+  firestore: admin.firestore.Firestore,
+  params: {
+    conversationId: string;
+    riderUid: string;
+    type: "support" | "driver";
+    counterpartId: string;
+    counterpartName: string;
+    counterpartRole: "support" | "driver";
+    title: string;
+    subtitle: string;
+    messageText: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  const ref = firestore.collection("conversations").doc(params.conversationId);
+  const snapshot = await ref.get();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const baseData = {
+    id: params.conversationId,
+    riderUid: params.riderUid,
+    type: params.type,
+    participantIds: [params.riderUid, params.counterpartId],
+    counterpartId: params.counterpartId,
+    counterpartName: params.counterpartName,
+    counterpartRole: params.counterpartRole,
+    title: params.title,
+    subtitle: params.subtitle,
+    lastMessageText: params.messageText,
+    lastMessageAt: now,
+    updatedAt: now,
+    ...params.metadata,
+  };
+
+  if (snapshot.exists) {
+    await ref.set(baseData, {merge: true});
+  } else {
+    await ref.set({
+      ...baseData,
+      createdAt: now,
+    });
+  }
+
+  await ref.collection("messages").add({
+    conversationId: params.conversationId,
+    senderRole: "system",
+    senderId: params.counterpartId,
+    senderName: params.counterpartName,
+    text: params.messageText,
+    createdAt: now,
+  });
+
+  return params.conversationId;
 }
 
 export const createRide = onCall({region: "us-central1", cors: true}, async (request) => {
@@ -115,6 +194,7 @@ export const createRide = onCall({region: "us-central1", cors: true}, async (req
   const authUser = await admin.auth().getUser(uid);
   const riderEmail = profile.email ?? authUser.email ?? null;
   const riderDisplayName = displayName(profile, riderEmail ?? "");
+  const driver = randomDriver();
 
   const rideRef = firestore.collection("rides").doc();
   await rideRef.set({
@@ -138,13 +218,50 @@ export const createRide = onCall({region: "us-central1", cors: true}, async (req
       email: riderEmail,
       displayName: riderDisplayName,
     },
+    driver: {
+      id: driver.id,
+      name: driver.name,
+    },
     timestamps: {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
   });
 
-  return {rideId: rideRef.id};
+  const supportConversationId = await upsertConversation(firestore, {
+    conversationId: `support_${uid}`,
+    riderUid: uid,
+    type: "support",
+    counterpartId: "support_admin",
+    counterpartName: "NEMT Support",
+    counterpartRole: "support",
+    title: "Support",
+    subtitle: "Questions about your rides",
+    messageText: `Your ride has been reserved successfully for ${dateTimeDisplay}. If you have any questions, you can ask in this support chat.`,
+  });
+
+  const driverConversationId = await upsertConversation(firestore, {
+    conversationId: `driver_${uid}_${driver.id}`,
+    riderUid: uid,
+    type: "driver",
+    counterpartId: driver.id,
+    counterpartName: driver.name,
+    counterpartRole: "driver",
+    title: driver.name,
+    subtitle: "Assigned driver",
+    messageText: `Your driver has been confirmed. ${driver.name} will handle your trip on ${dateTimeDisplay}. If you want to get in touch, you can use this chat.`,
+    metadata: {
+      driverId: driver.id,
+      driverName: driver.name,
+    },
+  });
+
+  return {
+    rideId: rideRef.id,
+    driverName: driver.name,
+    driverConversationId,
+    supportConversationId,
+  };
 });
 
 export const cancelRide = onCall({region: "us-central1", cors: true}, async (request) => {
@@ -233,4 +350,69 @@ export const cancelRideHttp = onRequest({region: "us-central1", cors: true}, asy
   }
 
   response.status(200).json({rideId, lifecycleStatus: "CANCELLED"});
+});
+
+export const sendMessageHttp = onRequest({region: "us-central1", cors: true}, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({error: "method-not-allowed"});
+    return;
+  }
+
+  const authHeader = request.header("Authorization") ?? "";
+  const tokenMatch = authHeader.match(/^Bearer (.+)$/i);
+  if (!tokenMatch) {
+    response.status(401).json({error: "missing-auth-token"});
+    return;
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(tokenMatch[1]);
+  } catch {
+    response.status(401).json({error: "invalid-auth-token"});
+    return;
+  }
+
+  const payload = (request.body ?? {}) as SendMessagePayload;
+  const conversationId = asConversationId(payload.conversationId);
+  const text = asRequiredString(payload.text, "text");
+  const uid = decodedToken.uid;
+  const firestore = admin.firestore();
+  const conversationRef = firestore.collection("conversations").doc(conversationId);
+  const conversationSnapshot = await conversationRef.get();
+
+  if (!conversationSnapshot.exists) {
+    response.status(404).json({error: "conversation-not-found"});
+    return;
+  }
+
+  const conversation = conversationSnapshot.data() as {
+    participantIds?: string[];
+  } | undefined;
+  const participantIds = conversation?.participantIds ?? [];
+  if (!participantIds.includes(uid)) {
+    response.status(403).json({error: "permission-denied"});
+    return;
+  }
+
+  const authUser = await admin.auth().getUser(uid);
+  const senderName = authUser.displayName?.trim() || authUser.email?.split("@")[0] || "Passenger";
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await conversationRef.collection("messages").add({
+    conversationId,
+    senderRole: "rider",
+    senderId: uid,
+    senderName,
+    text,
+    createdAt: now,
+  });
+
+  await conversationRef.set({
+    lastMessageText: text,
+    lastMessageAt: now,
+    updatedAt: now,
+  }, {merge: true});
+
+  response.status(200).json({conversationId, text});
 });
