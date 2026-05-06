@@ -1,5 +1,8 @@
 package com.mobapps.nemt.ui.screens
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,18 +12,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
@@ -33,22 +35,34 @@ import androidx.compose.material.icons.outlined.DirectionsBus
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.rememberCameraPositionState
+import com.mobapps.nemt.BuildConfig
 import com.mobapps.nemt.R
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.padding
+import com.mobapps.nemt.ui.rememberRidePlannerViewModel
 
 private val BackgroundColor = Color(0xFFF3F4F7)
 private val CardColor = Color(0xFFFFFFFF)
@@ -58,6 +72,7 @@ private val TextPrimary = Color(0xFF111318)
 private val TextSecondary = Color(0xFF7A7F8C)
 private val BrandBlue = Color(0xFF2F8FFF)
 private val DarkChip = Color(0xFF1F222A)
+private val DefaultMapCenter = LatLng(25.7617, -80.1918)
 
 @Composable
 fun HomeScreen(
@@ -65,8 +80,46 @@ fun HomeScreen(
     onGoToTrips: () -> Unit,
     onGoToProfile: () -> Unit,
     onGoToBooking: () -> Unit,
+    onNeedAssistanceClick: () -> Unit,
     contentPadding: PaddingValues
 ) {
+    val ridePlanner = rememberRidePlannerViewModel()
+    val deviceLocation by ridePlanner.deviceLocation.collectAsState()
+    val hasMapsKey = BuildConfig.MAPS_API_KEY.isNotBlank()
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            granted[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        ) {
+            ridePlanner.refreshDeviceLocation()
+        }
+    }
+
+    LaunchedEffect(hasMapsKey) {
+        if (!hasMapsKey) return@LaunchedEffect
+        val fine = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) {
+            ridePlanner.refreshDeviceLocation()
+        } else {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = BackgroundColor
@@ -78,7 +131,11 @@ fun HomeScreen(
             verticalArrangement = Arrangement.Top
         ) {
             item {
-                TopMapSection()
+                TopMapSection(
+                    hasMapsKey = hasMapsKey,
+                    deviceLocation = deviceLocation,
+                    onNeedAssistanceClick = onNeedAssistanceClick
+                )
             }
 
             item {
@@ -115,7 +172,32 @@ fun HomeScreen(
 }
 
 @Composable
-private fun TopMapSection() {
+private fun TopMapSection(
+    hasMapsKey: Boolean,
+    deviceLocation: LatLng?,
+    onNeedAssistanceClick: () -> Unit
+) {
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(
+            deviceLocation ?: DefaultMapCenter,
+            12f
+        )
+    }
+    LaunchedEffect(deviceLocation) {
+        deviceLocation?.let {
+            cameraPositionState.animate(
+                CameraUpdateFactory.newLatLngZoom(it, 14f),
+                durationMs = 500
+            )
+        }
+    }
+
+    val mapStatusLabel = when {
+        !hasMapsKey -> "Map preview"
+        deviceLocation == null -> "Finding your location"
+        else -> "You are here"
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -128,12 +210,32 @@ private fun TopMapSection() {
             )
             .background(Color(0xFF151821))
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.map_placeholder),
-            contentDescription = "Map background",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        if (hasMapsKey) {
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                uiSettings = MapUiSettings(
+                    zoomControlsEnabled = false,
+                    compassEnabled = false,
+                    mapToolbarEnabled = false,
+                    myLocationButtonEnabled = false
+                )
+            ) {
+                deviceLocation?.let { ll ->
+                    Marker(
+                        state = MarkerState(position = ll),
+                        title = "You are here"
+                    )
+                }
+            }
+        } else {
+            Image(
+                painter = painterResource(id = R.drawable.map_placeholder),
+                contentDescription = "Map background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         Row(
             modifier = Modifier
@@ -165,7 +267,7 @@ private fun TopMapSection() {
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0x33000000))
-                    .clickable { }
+                    .clickable { onNeedAssistanceClick() }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -190,14 +292,16 @@ private fun TopMapSection() {
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Outlined.LocationOn,
-                contentDescription = null,
-                tint = BrandBlue,
-                modifier = Modifier.size(30.dp)
-            )
+            if (!hasMapsKey || deviceLocation == null) {
+                Icon(
+                    imageVector = Icons.Outlined.LocationOn,
+                    contentDescription = null,
+                    tint = BrandBlue,
+                    modifier = Modifier.size(30.dp)
+                )
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Box(
                 modifier = Modifier
@@ -206,7 +310,7 @@ private fun TopMapSection() {
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "You are here",
+                    text = mapStatusLabel,
                     color = Color.White,
                     fontSize = 13.sp
                 )

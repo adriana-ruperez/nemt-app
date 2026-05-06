@@ -2,6 +2,7 @@ package com.mobapps.nemt.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,10 +42,18 @@ fun RideCard(
     from: String,
     to: String,
     patientName: String,
-    vehicle: String? = null
+    vehicle: String? = null,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
+    onSecondaryActionClick: (() -> Unit)? = null
 ) {
     val statusColor = when (status) {
         "In progress" -> BrandBlue
+        "Requested" -> TextSecondary
+        "Accepted" -> BrandBlue
+        "Assigned" -> BrandBlue
+        "Arrived" -> BrandBlue
         "Scheduled" -> TextSecondary
         "Completed" -> SuccessGreen
         "Cancelled" -> BrandRed
@@ -175,6 +184,46 @@ fun RideCard(
                         text = vehicle,
                         fontSize = 14.sp,
                         color = TextSecondary
+                    )
+                }
+            }
+        }
+
+        if ((actionLabel != null && onActionClick != null) ||
+            (secondaryActionLabel != null && onSecondaryActionClick != null)
+        ) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (secondaryActionLabel != null && onSecondaryActionClick != null) {
+                    Text(
+                        text = secondaryActionLabel,
+                        color = BrandBlue,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.W600,
+                        modifier = Modifier
+                            .background(Color(0x112F8FFF), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .border(1.dp, Color(0x332F8FFF), RoundedCornerShape(10.dp))
+                            .clickable { onSecondaryActionClick() }
+                            .padding(horizontal = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                if (actionLabel != null && onActionClick != null) {
+                    Text(
+                        text = actionLabel,
+                        color = BrandRed,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.W600,
+                        modifier = Modifier
+                            .background(Color(0x11FF5A5F), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .border(1.dp, Color(0x33FF5A5F), RoundedCornerShape(10.dp))
+                            .clickable { onActionClick() }
+                            .padding(horizontal = 2.dp)
                     )
                 }
             }

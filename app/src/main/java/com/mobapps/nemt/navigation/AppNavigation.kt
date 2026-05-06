@@ -15,6 +15,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import com.mobapps.nemt.data.UserProfile
 import com.mobapps.nemt.data.UserProfileRepository
 import com.mobapps.nemt.ui.components.BottomNavigationBar
@@ -27,6 +30,7 @@ import com.mobapps.nemt.ui.screens.HomeScreen
 import com.mobapps.nemt.ui.screens.HelpSupportScreen
 import com.mobapps.nemt.ui.screens.ProfileScreen
 import com.mobapps.nemt.ui.screens.TermsPrivacyScreen
+import com.mobapps.nemt.ui.screens.TripOverviewScreen
 import com.mobapps.nemt.ui.screens.TripsScreen
 
 @Composable
@@ -62,6 +66,14 @@ fun AppNavigation() {
             result.onSuccess { profile ->
                 currentProfile = profile
             }
+        }
+
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) return@addOnCompleteListener
+            val token = task.result ?: return@addOnCompleteListener
+            val uid = auth.currentUser?.uid ?: return@addOnCompleteListener
+            FirebaseFirestore.getInstance().collection("users").document(uid)
+                .set(mapOf("fcmToken" to token), SetOptions.merge())
         }
     }
 
@@ -162,6 +174,9 @@ fun AppNavigation() {
                     onGoToBooking = {
                         navController.navigate(Routes.Booking.route)
                     },
+                    onNeedAssistanceClick = {
+                        navController.navigate(Routes.HelpSupport.route)
+                    },
                     contentPadding = innerPadding
                 )
             }
@@ -211,6 +226,18 @@ fun AppNavigation() {
             composable(Routes.Booking.route) {
                 BookingScreen(
                     onBack = { navController.popBackStack() },
+                    onTripConfirmed = {
+                        navController.navigate(Routes.TripOverview.route) {
+                            popUpTo(Routes.Booking.route) { inclusive = true }
+                        }
+                    },
+                    contentPadding = innerPadding
+                )
+            }
+
+            composable(Routes.TripOverview.route) {
+                TripOverviewScreen(
+                    onClose = { navController.popBackStack() },
                     contentPadding = innerPadding
                 )
             }
