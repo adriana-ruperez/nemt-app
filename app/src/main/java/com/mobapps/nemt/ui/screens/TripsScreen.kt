@@ -38,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
-import com.mobapps.nemt.data.TripLifecycleStatus
 import com.mobapps.nemt.data.TripRecord
 import com.mobapps.nemt.data.TripStatus
 import com.mobapps.nemt.data.TripsFirestoreRepository
@@ -135,8 +134,8 @@ fun TripsScreen(
                     onManageTrip = { trip ->
                         tripToManage = trip
                         editDateTime = trip.dateTimeDisplay
-                        editFrom = trip.from
-                        editTo = trip.to
+                        editFrom = trip.originTitle
+                        editTo = trip.destinationTitle
                     },
                     modifier = Modifier.weight(1f)
                 )
@@ -299,29 +298,17 @@ private fun RidesList(
         }
 
         trips.forEach { trip ->
-            val upcoming = trip.lifecycleStatus.toUiTab() == TripStatus.UPCOMING
-            val canMutate = upcoming &&
-                trip.lifecycleStatus != TripLifecycleStatus.CANCELLED &&
-                trip.lifecycleStatus != TripLifecycleStatus.COMPLETED
             RideCard(
                 status = trip.lifecycleStatus.toRideCardStatusLabel(),
                 dateTime = trip.dateTimeDisplay,
-                from = trip.from,
-                to = trip.to,
-                patientName = trip.patientName,
-                vehicle = trip.vehicle,
-                actionLabel = if (canMutate) "Cancel trip" else null,
-                onActionClick = if (canMutate) {
-                    { onCancelTrip(trip.id) }
-                } else {
-                    null
-                },
-                secondaryActionLabel = if (canMutate) "Manage" else null,
-                onSecondaryActionClick = if (canMutate) {
-                    { onManageTrip(trip) }
-                } else {
-                    null
-                }
+                from = trip.originTitle,
+                to = trip.destinationTitle,
+                patientName = trip.riderDisplayName,
+                vehicle = trip.vehicleLabel,
+                actionLabel = null,
+                onActionClick = null,
+                secondaryActionLabel = null,
+                onSecondaryActionClick = null
             )
         }
     }

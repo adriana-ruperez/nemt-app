@@ -14,14 +14,14 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 /**
- * Rider-scoped trips in Firestore collection `trips`.
+ * Rider-scoped trips in Firestore collection `rides`.
  *
  * Expected Firestore rules (example): only authenticated users can read/write documents
  * where `riderUid == request.auth.uid`.
  */
 object TripsFirestoreRepository {
 
-    private const val COLLECTION = "trips"
+    private const val COLLECTION = "rides"
 
     private val firestore by lazy { FirebaseFirestore.getInstance() }
     private val tripsCollection by lazy { firestore.collection(COLLECTION) }
@@ -62,35 +62,66 @@ object TripsFirestoreRepository {
 
     fun createTrip(
         riderUid: String,
-        from: String,
-        to: String,
+        originTitle: String,
+        originAddress: String,
+        originPlaceId: String?,
+        originLatitude: Double?,
+        originLongitude: Double?,
+        destinationTitle: String,
+        destinationAddress: String,
+        destinationPlaceId: String?,
+        destinationLatitude: Double?,
+        destinationLongitude: Double?,
         scheduledAtMillis: Long,
         dateTimeDisplay: String,
-        vehicle: String,
-        patientName: String,
-        mobilitySupportSnapshot: String?,
-        accessibilityNeedsSnapshot: String?,
+        vehicleLabel: String,
+        riderDisplayName: String,
+        riderEmail: String?,
         onComplete: (Result<String>) -> Unit
     ) {
         val docRef = tripsCollection.document()
         val id = docRef.id
-        val now = System.currentTimeMillis()
         val data = hashMapOf(
             "id" to id,
             "riderUid" to riderUid,
             "lifecycleStatus" to TripLifecycleStatus.ACCEPTED.name,
-            "from" to from,
-            "to" to to,
             "scheduledAtMillis" to scheduledAtMillis,
-            "dateTimeDisplay" to dateTimeDisplay,
-            "vehicle" to vehicle,
-            "patientName" to patientName,
-            "mobilitySupportSnapshot" to mobilitySupportSnapshot,
-            "accessibilityNeedsSnapshot" to accessibilityNeedsSnapshot,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "updatedAt" to FieldValue.serverTimestamp(),
-            "createdAtMillis" to now,
-            "updatedAtMillis" to now
+            "route" to mapOf(
+                "origin" to mapOf(
+                    "title" to originTitle,
+                    "address" to originAddress,
+                    "placeId" to originPlaceId,
+                    "location" to mapOf(
+                        "latitude" to originLatitude,
+                        "longitude" to originLongitude
+                    )
+                ),
+                "destination" to mapOf(
+                    "title" to destinationTitle,
+                    "address" to destinationAddress,
+                    "placeId" to destinationPlaceId,
+                    "location" to mapOf(
+                        "latitude" to destinationLatitude,
+                        "longitude" to destinationLongitude
+                    )
+                )
+            ),
+            "schedule" to mapOf(
+                "scheduledAtMillis" to scheduledAtMillis,
+                "dateTimeDisplay" to dateTimeDisplay
+            ),
+            "vehicle" to mapOf(
+                "label" to vehicleLabel
+            ),
+            "rider" to mapOf(
+                "uid" to riderUid,
+                "email" to riderEmail,
+                "displayName" to riderDisplayName
+            ),
+            "timestamps" to mapOf(
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
         )
         docRef.set(data)
             .addOnSuccessListener { onComplete(Result.success(id)) }
@@ -107,11 +138,10 @@ object TripsFirestoreRepository {
         tripsCollection.document(tripId)
             .update(
                 mapOf(
-                    "dateTimeDisplay" to newDateTimeDisplay,
-                    "from" to newFrom,
-                    "to" to newTo,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                    "updatedAtMillis" to System.currentTimeMillis()
+                    "schedule.dateTimeDisplay" to newDateTimeDisplay,
+                    "route.origin.title" to newFrom,
+                    "route.destination.title" to newTo,
+                    "timestamps.updatedAt" to FieldValue.serverTimestamp()
                 )
             )
             .addOnSuccessListener { onComplete(Result.success(Unit)) }
@@ -123,8 +153,7 @@ object TripsFirestoreRepository {
             .update(
                 mapOf(
                     "lifecycleStatus" to TripLifecycleStatus.CANCELLED.name,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                    "updatedAtMillis" to System.currentTimeMillis()
+                    "timestamps.updatedAt" to FieldValue.serverTimestamp()
                 )
             )
             .addOnSuccessListener { onComplete(Result.success(Unit)) }
@@ -140,25 +169,53 @@ object TripsFirestoreRepository {
         val templates = demoTripTemplates()
         templates.forEachIndexed { index, template ->
             val ref = tripsCollection.document()
-            val now = System.currentTimeMillis()
             batch.set(
                 ref,
                 hashMapOf(
                     "id" to ref.id,
                     "riderUid" to riderUid,
                     "lifecycleStatus" to template.status.name,
-                    "from" to template.from,
-                    "to" to template.to,
                     "scheduledAtMillis" to template.scheduledAtMillis,
-                    "dateTimeDisplay" to template.dateTimeDisplay,
-                    "vehicle" to template.vehicle,
-                    "patientName" to template.patientName,
-                    "mobilitySupportSnapshot" to template.mobility,
-                    "accessibilityNeedsSnapshot" to template.accessibility,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                    "createdAtMillis" to now + index,
-                    "updatedAtMillis" to now + index
+                    "route" to mapOf(
+                        "origin" to mapOf(
+                            "title" to template.from,
+                            "address" to template.from,
+                            "placeId" to null,
+                            "location" to mapOf(
+                                "latitude" to null,
+                                "longitude" to null
+                            )
+                        ),
+                        "destination" to mapOf(
+                            "title" to template.to,
+                            "address" to template.to,
+                            "placeId" to null,
+                            "location" to mapOf(
+                                "latitude" to null,
+                                "longitude" to null
+                            )
+                        )
+                    ),
+                    "schedule" to mapOf(
+                        "scheduledAtMillis" to template.scheduledAtMillis,
+                        "dateTimeDisplay" to template.dateTimeDisplay
+                    ),
+                    "vehicle" to mapOf(
+                        "label" to template.vehicle
+                    ),
+                    "rider" to mapOf(
+                        "uid" to riderUid,
+                        "email" to null,
+                        "displayName" to template.patientName
+                    ),
+                    "requirements" to mapOf(
+                        "mobilitySupport" to template.mobility,
+                        "accessibilityNeeds" to template.accessibility
+                    ),
+                    "timestamps" to mapOf(
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
                 )
             )
         }
@@ -211,10 +268,10 @@ object TripsFirestoreRepository {
             "Unit 19 · Mobility Assist"
         )
         val names = listOf(
-            "For: Sofia R.",
-            "For: Daniel M.",
-            "For: Elena C.",
-            "For: Pablo G."
+            "Sofia R.",
+            "Daniel M.",
+            "Elena C.",
+            "Pablo G."
         )
         fun route(i: Int): Pair<String, String> {
             val from = pickups[i % pickups.size]
@@ -271,30 +328,70 @@ object TripsFirestoreRepository {
         val tripId = id
         val rider = getString("riderUid") ?: return null
         val status = TripLifecycleStatus.fromString(getString("lifecycleStatus"))
-        val from = getString("from").orEmpty()
-        val to = getString("to").orEmpty()
-        val scheduled = getLong("scheduledAtMillis") ?: 0L
-        val display = getString("dateTimeDisplay").orEmpty()
-        val vehicle = getString("vehicle").orEmpty()
-        val patient = getString("patientName").orEmpty()
-        val mobility = getString("mobilitySupportSnapshot")
-        val accessibility = getString("accessibilityNeedsSnapshot")
-        val createdMs = (get("createdAt") as? Timestamp)?.toDate()?.time
-            ?: getLong("createdAtMillis") ?: 0L
-        val updatedMs = (get("updatedAt") as? Timestamp)?.toDate()?.time
-            ?: getLong("updatedAtMillis") ?: 0L
+        val route = get("route") as? Map<*, *>
+        val origin = route?.get("origin") as? Map<*, *>
+        val destination = route?.get("destination") as? Map<*, *>
+        val originLocation = origin?.get("location") as? Map<*, *>
+        val destinationLocation = destination?.get("location") as? Map<*, *>
+        val schedule = get("schedule") as? Map<*, *>
+        val vehicle = get("vehicle") as? Map<*, *>
+        val riderData = get("rider") as? Map<*, *>
+        val requirements = get("requirements") as? Map<*, *>
+        val timestamps = get("timestamps") as? Map<*, *>
+
+        val originTitle = origin?.get("title") as? String ?: getString("from").orEmpty()
+        val originAddress = origin?.get("address") as? String ?: getString("fromAddress").orEmpty()
+        val originPlaceId = origin?.get("placeId") as? String ?: getString("fromPlaceId")
+        val originLatitude = (originLocation?.get("latitude") as? Number)?.toDouble()
+            ?: getDouble("fromLatitude")
+        val originLongitude = (originLocation?.get("longitude") as? Number)?.toDouble()
+            ?: getDouble("fromLongitude")
+        val destinationTitle = destination?.get("title") as? String ?: getString("to").orEmpty()
+        val destinationAddress = destination?.get("address") as? String ?: getString("toAddress").orEmpty()
+        val destinationPlaceId = destination?.get("placeId") as? String ?: getString("toPlaceId")
+        val destinationLatitude = (destinationLocation?.get("latitude") as? Number)?.toDouble()
+            ?: getDouble("toLatitude")
+        val destinationLongitude = (destinationLocation?.get("longitude") as? Number)?.toDouble()
+            ?: getDouble("toLongitude")
+        val scheduled = (schedule?.get("scheduledAtMillis") as? Number)?.toLong()
+            ?: getLong("scheduledAtMillis") ?: 0L
+        val display = schedule?.get("dateTimeDisplay") as? String
+            ?: getString("dateTimeDisplay").orEmpty()
+        val vehicleLabel = vehicle?.get("label") as? String ?: getString("vehicle").orEmpty()
+        val riderDisplayName = riderData?.get("displayName") as? String
+            ?: getString("patientName").orEmpty()
+        val riderEmail = riderData?.get("email") as? String ?: getString("riderEmail")
+        val mobility = requirements?.get("mobilitySupport") as? String
+            ?: getString("mobilitySupportSnapshot")
+        val accessibility = requirements?.get("accessibilityNeeds") as? String
+            ?: getString("accessibilityNeedsSnapshot")
+        val createdMs = ((timestamps?.get("createdAt") as? Timestamp)?.toDate()?.time)
+            ?: (get("createdAt") as? Timestamp)?.toDate()?.time
+            ?: 0L
+        val updatedMs = ((timestamps?.get("updatedAt") as? Timestamp)?.toDate()?.time)
+            ?: (get("updatedAt") as? Timestamp)?.toDate()?.time
+            ?: createdMs
         return TripRecord(
             id = getString("id") ?: tripId,
             riderUid = rider,
             lifecycleStatus = status,
-            from = from,
-            to = to,
+            originTitle = originTitle,
+            originAddress = originAddress,
+            originPlaceId = originPlaceId,
+            originLatitude = originLatitude,
+            originLongitude = originLongitude,
+            destinationTitle = destinationTitle,
+            destinationAddress = destinationAddress,
+            destinationPlaceId = destinationPlaceId,
+            destinationLatitude = destinationLatitude,
+            destinationLongitude = destinationLongitude,
             scheduledAtMillis = scheduled,
             dateTimeDisplay = display,
-            vehicle = vehicle,
-            patientName = patient,
-            mobilitySupportSnapshot = mobility,
-            accessibilityNeedsSnapshot = accessibility,
+            vehicleLabel = vehicleLabel,
+            riderDisplayName = riderDisplayName,
+            riderEmail = riderEmail,
+            mobilitySupport = mobility,
+            accessibilityNeeds = accessibility,
             createdAtMillis = createdMs,
             updatedAtMillis = updatedMs
         )
